@@ -15,9 +15,10 @@ fn main() {
     debug!("Using clang from {}", clang.display());
     let mut processed_args = vec![];
     for arg in args {
-        if arg == "--target=riscv64imac_zba_zbb_zbc_zbs-unknown-ckb-elf" {
-            processed_args.push("--target=riscv64-unknown-ckb-elf".to_string());
-            processed_args.push("-march=rv64imac_zba_zbb_zbc_zbs".to_string());
+        let re = Regex::new(r"--target=riscv(64|32)([^-]+)(-.+)").unwrap();
+        if let Some(caps) = re.captures(&arg) {
+            processed_args.push(format!("--target=riscv{}{}", &caps[1], &caps[3]));
+            processed_args.push(format!("-march=rv{}{}", &caps[1], &caps[2]));
         } else {
             processed_args.push(arg);
         }
