@@ -33,11 +33,29 @@ fn main() {
 
 fn find_clang(major_version: u32) -> PathBuf {
     let version_prefix = format!("{}.", major_version);
+    // Check for LLVM installed for homebrew environment
+    if let Some(prefix) = fetch_homebrew_prefix() {
+        if let Some((bin, version)) = check_binary(&format!("{}/opt/llvm/bin/clang", prefix)) {
+            if version.starts_with(&version_prefix) {
+                return bin;
+            }
+        }
+        if let Some((bin, version)) =
+            check_binary(&format!("{}/opt/llvm@{}/bin/clang", prefix, major_version))
+        {
+            if version.starts_with(&version_prefix) {
+                return bin;
+            }
+        }
+    }
+    // Check default LLVM installation (most likely this is not what we want)
     if let Some((bin, version)) = check_binary("clang") {
         if version.starts_with(&version_prefix) {
             return bin;
         }
     }
+    // Check clang with version suffix (apt installation on Ubuntu/Debian has
+    // this suffix)
     if let Some((bin, version)) = check_binary(&format!("clang-{}", major_version)) {
         if version.starts_with(&version_prefix) {
             return bin;
@@ -47,11 +65,21 @@ fn find_clang(major_version: u32) -> PathBuf {
 }
 
 fn check_binary(bin: &str) -> Option<(PathBuf, String)> {
-    let path = which::which(bin).ok()?;
+    let path = if bin.contains('/') || bin.contains('\\') {
+        bin.into()
+    } else {
+        which::which(bin).ok()?
+    };
     let status = Command::new(&path).arg("--version").output().ok()?;
     let output = from_utf8(&status.stdout).ok()?;
     let re = Regex::new(r"clang version ([\S]+)").unwrap();
     let caps = re.captures(output)?;
     let version = caps.get(1)?;
     Some((path, version.as_str().to_string()))
+}
+
+fn fetch_homebrew_prefix() -> Option<String> {
+    let status = Command::new("brew").arg("--prefix").output().ok()?;
+    let output = from_utf8(&status.stdout).ok()?;
+    Some(output.trim().to_string())
 }
