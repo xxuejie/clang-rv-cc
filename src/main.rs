@@ -1,7 +1,7 @@
-use log::debug;
+use log::{debug, error};
 use regex::Regex;
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::from_utf8;
 
@@ -10,9 +10,22 @@ const MAJOR_VERSION: u32 = 16;
 fn main() {
     env_logger::init();
 
-    let args: Vec<String> = env::args().skip(1).collect();
-    let clang = find_clang(MAJOR_VERSION);
-    debug!("Using clang from {}", clang.display());
+    let mut args: Vec<String> = env::args().collect();
+    if args.is_empty() {
+        error!("Provide a binary name to locate for!");
+        return;
+    }
+    let mut bin_name = Path::new(&args.remove(0))
+        .file_name()
+        .unwrap()
+        .to_str()
+        .expect("utf-8")
+        .to_string();
+    if bin_name == std::env!("CARGO_PKG_NAME") {
+        bin_name = "clang".to_string();
+    }
+    let bin = find_bin(&bin_name, MAJOR_VERSION);
+    debug!("Using {} from {}", bin_name, bin.display());
     let mut processed_args = vec![];
     for arg in args {
         let re = Regex::new(r"--target=riscv(64|32)([^-]+)(-.+)").unwrap();
@@ -24,44 +37,49 @@ fn main() {
         }
     }
     debug!("Processed args: {:?}", processed_args);
-    let status = Command::new(clang)
+    let status = Command::new(bin)
         .args(processed_args)
         .status()
-        .expect("running clang!");
+        .expect("running command!");
     std::process::exit(status.code().unwrap_or(-1));
 }
 
-fn find_clang(major_version: u32) -> PathBuf {
+fn find_bin(bin_name: &str, major_version: u32) -> PathBuf {
     let version_prefix = format!("{}.", major_version);
     // Check for LLVM installed for homebrew environment
     if let Some(prefix) = fetch_homebrew_prefix() {
-        if let Some((bin, version)) = check_binary(&format!("{}/opt/llvm/bin/clang", prefix)) {
+        if let Some((bin, version)) = check_binary(&format!("{}/opt/llvm/bin/{}", prefix, bin_name))
+        {
             if version.starts_with(&version_prefix) {
                 return bin;
             }
         }
-        if let Some((bin, version)) =
-            check_binary(&format!("{}/opt/llvm@{}/bin/clang", prefix, major_version))
-        {
+        if let Some((bin, version)) = check_binary(&format!(
+            "{}/opt/llvm@{}/bin/{}",
+            prefix, major_version, bin_name
+        )) {
             if version.starts_with(&version_prefix) {
                 return bin;
             }
         }
     }
     // Check default LLVM installation (most likely this is not what we want)
-    if let Some((bin, version)) = check_binary("clang") {
+    if let Some((bin, version)) = check_binary(bin_name) {
         if version.starts_with(&version_prefix) {
             return bin;
         }
     }
-    // Check clang with version suffix (apt installation on Ubuntu/Debian has
+    // Check binary with version suffix (apt installation on Ubuntu/Debian has
     // this suffix)
-    if let Some((bin, version)) = check_binary(&format!("clang-{}", major_version)) {
+    if let Some((bin, version)) = check_binary(&format!("{}-{}", bin_name, major_version)) {
         if version.starts_with(&version_prefix) {
             return bin;
         }
     }
-    panic!("Cannot find clang with major version {}!", major_version);
+    panic!(
+        "Cannot find {} with major version {}!",
+        bin_name, major_version
+    );
 }
 
 fn check_binary(bin: &str) -> Option<(PathBuf, String)> {
@@ -72,7 +90,7 @@ fn check_binary(bin: &str) -> Option<(PathBuf, String)> {
     };
     let status = Command::new(&path).arg("--version").output().ok()?;
     let output = from_utf8(&status.stdout).ok()?;
-    let re = Regex::new(r"clang version ([\S]+)").unwrap();
+    let re = Regex::new(r"version ([\S]+)").unwrap();
     let caps = re.captures(output)?;
     let version = caps.get(1)?;
     Some((path, version.as_str().to_string()))
