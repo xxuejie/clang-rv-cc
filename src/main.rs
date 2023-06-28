@@ -88,8 +88,8 @@ fn find_bin(bin_name: &str, major_version: u32) -> PathBuf {
         }
     }
     panic!(
-        "Cannot find {} with major version {}!",
-        bin_name, major_version
+        "Cannot find {} with major version {}, make sure you have LLVM {} properly installed!",
+        bin_name, major_version, major_version,
     );
 }
 
