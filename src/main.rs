@@ -1,5 +1,6 @@
 use log::{debug, error};
 use regex::Regex;
+use std::collections::HashSet;
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -26,8 +27,18 @@ fn main() {
     }
     let bin = find_bin(&bin_name, MAJOR_VERSION);
     debug!("Using {} from {}", bin_name, bin.display());
+    let ignored_args = {
+        let mut s: HashSet<&str> = HashSet::default();
+        s.insert("-nostartfiles");
+        s.insert("-Wno-nonnull-compare");
+        s.insert("-Wno-dangling-pointer");
+        s
+    };
     let mut processed_args = vec![];
     for arg in args {
+        if ignored_args.contains(arg.as_str()) {
+            continue;
+        }
         let re = Regex::new(r"--target=riscv(64|32)([^-]+)(-.+)").unwrap();
         if let Some(caps) = re.captures(&arg) {
             processed_args.push(format!("--target=riscv{}{}", &caps[1], &caps[3]));
