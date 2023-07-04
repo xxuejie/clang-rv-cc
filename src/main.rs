@@ -6,7 +6,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::from_utf8;
 
-const MAJOR_VERSION: u32 = 16;
+// As of now(Jul 4, 2023), Archlinux still only has pre-built binaries for LLVM 15,
+// CentOS 7 still only has LLVM 14 prebuilds. We will have to deal with older versions
+// of clang.
+const MAJOR_VERSIONS: &[u32] = &[16, 15, 14];
 
 fn main() {
     env_logger::init();
@@ -25,7 +28,7 @@ fn main() {
     if bin_name == std::env!("CARGO_PKG_NAME") {
         bin_name = "clang".to_string();
     }
-    let bin = find_bin(&bin_name, MAJOR_VERSION);
+    let bin = find_bin(&bin_name, MAJOR_VERSIONS);
     debug!("Using {} from {}", bin_name, bin.display());
     let ignored_args = {
         let mut s: HashSet<&str> = HashSet::default();
@@ -55,41 +58,44 @@ fn main() {
     std::process::exit(status.code().unwrap_or(-1));
 }
 
-fn find_bin(bin_name: &str, major_version: u32) -> PathBuf {
-    let version_prefix = format!("{}.", major_version);
-    // Check for LLVM installed for homebrew environment
-    if let Some(prefix) = fetch_homebrew_prefix() {
-        if let Some((bin, version)) = check_binary(&format!("{}/opt/llvm/bin/{}", prefix, bin_name))
-        {
+fn find_bin(bin_name: &str, major_versions: &[u32]) -> PathBuf {
+    for major_version in major_versions {
+        let version_prefix = format!("{}.", major_version);
+        // Check for LLVM installed for homebrew environment
+        if let Some(prefix) = fetch_homebrew_prefix() {
+            if let Some((bin, version)) =
+                check_binary(&format!("{}/opt/llvm/bin/{}", prefix, bin_name))
+            {
+                if version.starts_with(&version_prefix) {
+                    return bin;
+                }
+            }
+            if let Some((bin, version)) = check_binary(&format!(
+                "{}/opt/llvm@{}/bin/{}",
+                prefix, major_version, bin_name
+            )) {
+                if version.starts_with(&version_prefix) {
+                    return bin;
+                }
+            }
+        }
+        // Check default LLVM installation (most likely this is not what we want)
+        if let Some((bin, version)) = check_binary(bin_name) {
             if version.starts_with(&version_prefix) {
                 return bin;
             }
         }
-        if let Some((bin, version)) = check_binary(&format!(
-            "{}/opt/llvm@{}/bin/{}",
-            prefix, major_version, bin_name
-        )) {
+        // Check binary with version suffix (apt installation on Ubuntu/Debian has
+        // this suffix)
+        if let Some((bin, version)) = check_binary(&format!("{}-{}", bin_name, major_version)) {
             if version.starts_with(&version_prefix) {
                 return bin;
             }
-        }
-    }
-    // Check default LLVM installation (most likely this is not what we want)
-    if let Some((bin, version)) = check_binary(bin_name) {
-        if version.starts_with(&version_prefix) {
-            return bin;
-        }
-    }
-    // Check binary with version suffix (apt installation on Ubuntu/Debian has
-    // this suffix)
-    if let Some((bin, version)) = check_binary(&format!("{}-{}", bin_name, major_version)) {
-        if version.starts_with(&version_prefix) {
-            return bin;
         }
     }
     panic!(
-        "Cannot find {} with major version {}, make sure you have LLVM {} properly installed!",
-        bin_name, major_version, major_version,
+        "Cannot find {} with major versions: {:?}, make sure you have LLVM properly installed!",
+        bin_name, major_versions,
     );
 }
 
